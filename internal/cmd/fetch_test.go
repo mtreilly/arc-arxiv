@@ -1086,3 +1086,225 @@ func TestValidation(t *testing.T) {
 		}
 	})
 }
+
+// Edge case tests for robustness
+
+func TestEdgeCases_EmptyPaperDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	papersRoot := filepath.Join(tmpDir, "papers")
+
+	// Create papers directory but no papers
+	if err := os.MkdirAll(papersRoot, 0o755); err != nil {
+		t.Fatalf("Failed to create papers dir: %v", err)
+	}
+
+	// List should handle empty directory
+	entries, err := os.ReadDir(papersRoot)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("Expected 0 entries, got %d", len(entries))
+	}
+}
+
+func TestEdgeCases_MalformedMetaYAML(t *testing.T) {
+	testCases := []struct {
+		name    string
+		content string
+	}{
+		{"empty_file", ""},
+		{"just_whitespace", "   \n\t\n  "},
+		{"invalid_yaml_syntax", "key: value: invalid"},
+		{"unclosed_bracket", "authors: [unclosed"},
+		{"tab_indent_issues", "key:\n\tvalue"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			metaPath := filepath.Join(tmpDir, "meta.yaml")
+
+			if err := os.WriteFile(metaPath, []byte(tc.content), 0o644); err != nil {
+				t.Fatalf("Failed to write test file: %v", err)
+			}
+
+			// Should return error or handle gracefully
+			_, err := readMeta(metaPath)
+			// We don't care if it errors or not, just that it doesn't panic
+			_ = err
+		})
+	}
+}
+
+func TestEdgeCases_LargeMetaFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	metaPath := filepath.Join(tmpDir, "meta.yaml")
+
+	// Create a large but valid meta file
+	meta := &arxiv.ArxivMeta{
+		ArxivID:  "2304.00067",
+		Title:    strings.Repeat("A", 10000), // 10KB title
+		Abstract: strings.Repeat("B", 100000), // 100KB abstract
+		Authors:  make([]arxiv.Author, 1000), // 1000 authors
+	}
+
+	for i := range meta.Authors {
+		meta.Authors[i] = arxiv.Author{Name: "Author " + strings.Repeat("X", 100)}
+	}
+
+	if err := writeMeta(metaPath, meta); err != nil {
+		t.Fatalf("writeMeta failed for large file: %v", err)
+	}
+
+	// Read it back
+	loaded, err := readMeta(metaPath)
+	if err != nil {
+		t.Fatalf("readMeta failed for large file: %v", err)
+	}
+
+	if len(loaded.Title) != 10000 {
+		t.Errorf("Title length = %d, want 10000", len(loaded.Title))
+	}
+	if len(loaded.Authors) != 1000 {
+		t.Errorf("Authors count = %d, want 1000", len(loaded.Authors))
+	}
+}
+
+func TestEdgeCases_SpecialFilenames(t *testing.T) {
+	// Test that we handle various arXiv ID formats as directory names
+	testIDs := []string{
+		"2304.00067",
+		"2304.00067v2",
+		"hep-th-9901001", // Note: actual old-style uses / but filesystem uses -
+	}
+
+	for _, id := range testIDs {
+		t.Run(id, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			paperDir := filepath.Join(tmpDir, id)
+
+			if err := os.MkdirAll(paperDir, 0o755); err != nil {
+				t.Fatalf("Failed to create dir %q: %v", id, err)
+			}
+
+			// Verify it exists
+			info, err := os.Stat(paperDir)
+			if err != nil {
+				t.Fatalf("Dir %q not accessible: %v", id, err)
+			}
+			if !info.IsDir() {
+				t.Errorf("%q should be a directory", id)
+			}
+		})
+	}
+}
+
+func TestEdgeCases_ConcurrentMetaAccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	metaPath := filepath.Join(tmpDir, "meta.yaml")
+
+	meta := &arxiv.ArxivMeta{
+		ArxivID: "2304.00067",
+		Title:   "Concurrent Test",
+	}
+
+	// Write initial file
+	if err := writeMeta(metaPath, meta); err != nil {
+		t.Fatalf("Initial write failed: %v", err)
+	}
+
+	// Concurrent reads should work
+	done := make(chan error, 50)
+	for i := 0; i < 50; i++ {
+		go func() {
+			_, err := readMeta(metaPath)
+			done <- err
+		}()
+	}
+
+	for i := 0; i < 50; i++ {
+		if err := <-done; err != nil {
+			t.Errorf("Concurrent read failed: %v", err)
+		}
+	}
+}
+
+func TestEdgeCases_BinaryContentInFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	metaPath := filepath.Join(tmpDir, "meta.yaml")
+
+	// Test with binary-like content (null bytes, control chars)
+	meta := &arxiv.ArxivMeta{
+		ArxivID: "2304.00067",
+		Title:   "Title with \x00 null and \x01 control",
+		// Note: YAML may have issues with null bytes
+	}
+
+	err := writeMeta(metaPath, meta)
+	// May succeed or fail depending on YAML library handling
+	// Just ensure no panic
+	_ = err
+}
+
+func TestEdgeCases_VeryDeepPath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a moderately deep path
+	deepPath := tmpDir
+	for i := 0; i < 20; i++ {
+		deepPath = filepath.Join(deepPath, "level"+string(rune('a'+i)))
+	}
+	deepPath = filepath.Join(deepPath, "papers", "2304.00067")
+
+	if err := os.MkdirAll(deepPath, 0o755); err != nil {
+		t.Fatalf("Failed to create deep path: %v", err)
+	}
+
+	// Verify accessible
+	if _, err := os.Stat(deepPath); err != nil {
+		t.Errorf("Deep path not accessible: %v", err)
+	}
+}
+
+func TestEdgeCases_SymlinkHandling(t *testing.T) {
+	tmpDir := t.TempDir()
+	realDir := filepath.Join(tmpDir, "real")
+	linkDir := filepath.Join(tmpDir, "link")
+
+	// Create real directory
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("Failed to create real dir: %v", err)
+	}
+
+	// Create symlink
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("Symlinks not supported: %v", err)
+	}
+
+	// Write through symlink
+	metaPath := filepath.Join(linkDir, "meta.yaml")
+	meta := &arxiv.ArxivMeta{
+		ArxivID: "2304.00067",
+		Title:   "Symlink Test",
+	}
+
+	if err := writeMeta(metaPath, meta); err != nil {
+		t.Fatalf("Write through symlink failed: %v", err)
+	}
+
+	// Read through symlink
+	loaded, err := readMeta(metaPath)
+	if err != nil {
+		t.Fatalf("Read through symlink failed: %v", err)
+	}
+	if loaded.Title != meta.Title {
+		t.Errorf("Title mismatch through symlink")
+	}
+
+	// Verify file exists in real location
+	realMetaPath := filepath.Join(realDir, "meta.yaml")
+	if _, err := os.Stat(realMetaPath); err != nil {
+		t.Error("File should exist in real location")
+	}
+}
