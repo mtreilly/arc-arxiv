@@ -1,4 +1,4 @@
-module github.com/yourorg/arc-arxiv
+module github.com/mtreilly/arc-arxiv
 
 go 1.25.0
 

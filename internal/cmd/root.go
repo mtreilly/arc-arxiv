@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/yourorg/arc-arxiv/internal/arxiv"
+	"github.com/mtreilly/arc-arxiv/internal/arxiv"
 	"github.com/yourorg/arc-sdk/config"
 	"github.com/yourorg/arc-sdk/output"
 	"github.com/yourorg/arc-sdk/utils"

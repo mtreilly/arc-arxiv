@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yourorg/arc-arxiv/internal/cmd"
+	"github.com/mtreilly/arc-arxiv/internal/cmd"
 	"github.com/yourorg/arc-sdk/config"
 	"github.com/yourorg/arc-sdk/db"
 )
