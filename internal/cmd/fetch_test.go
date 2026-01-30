@@ -320,7 +320,7 @@ func TestPDFDownload(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/pdf")
 			w.Header().Set("Content-Length", "1000")
-			w.Write([]byte("%PDF-1.4 fake pdf content"))
+			_, _ = w.Write([]byte("%PDF-1.4 fake pdf content"))
 		}))
 		defer server.Close()
 
@@ -332,7 +332,7 @@ func TestPDFDownload(t *testing.T) {
 		if err != nil {
 			t.Fatalf("download failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("status = %d, want 200", resp.StatusCode)
@@ -571,7 +571,7 @@ func TestFetchIntegration_MockServer(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return mock atom/XML response
 		w.Header().Set("Content-Type", "application/atom+xml")
-		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <entry>
     <id>http://arxiv.org/abs/2304.00067v1</id>
@@ -591,7 +591,7 @@ func TestFetchIntegration_MockServer(t *testing.T) {
 	pdfServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("Content-Length", "100")
-		w.Write([]byte("%PDF-1.4 mock pdf content for testing purposes"))
+		_, _ = w.Write([]byte("%PDF-1.4 mock pdf content for testing purposes"))
 	}))
 	defer pdfServer.Close()
 
@@ -601,7 +601,7 @@ func TestFetchIntegration_MockServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("API server error: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("API server status = %d, want 200", resp.StatusCode)
 		}
@@ -611,7 +611,7 @@ func TestFetchIntegration_MockServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PDF server error: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("PDF server status = %d, want 200", resp.StatusCode)
 		}
@@ -920,7 +920,7 @@ func TestHTTPErrors(t *testing.T) {
 	t.Run("handles_404", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("Not Found"))
+			_, _ = w.Write([]byte("Not Found"))
 		}))
 		defer server.Close()
 
@@ -928,7 +928,7 @@ func TestHTTPErrors(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("Expected 404, got %d", resp.StatusCode)
@@ -938,7 +938,7 @@ func TestHTTPErrors(t *testing.T) {
 	t.Run("handles_500", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Internal Server Error"))
+			_, _ = w.Write([]byte("Internal Server Error"))
 		}))
 		defer server.Close()
 
@@ -946,7 +946,7 @@ func TestHTTPErrors(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusInternalServerError {
 			t.Errorf("Expected 500, got %d", resp.StatusCode)
