@@ -418,3 +418,371 @@ func TestMetaToArticle_RoundTrip(t *testing.T) {
 		t.Errorf("PrimaryCategory mismatch: %q != %q", restored.PrimaryCategory, original.PrimaryCategory)
 	}
 }
+
+// Additional edge case tests
+
+func TestNormalizeArxivID_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		// Version edge cases
+		{
+			name:  "high version number",
+			input: "2304.00067v99",
+			want:  "2304.00067v99",
+		},
+		{
+			name:  "version 1 explicit",
+			input: "2304.00067v1",
+			want:  "2304.00067v1",
+		},
+
+		// URL variations
+		{
+			name:  "URL with www prefix",
+			input: "https://www.arxiv.org/abs/2304.00067",
+			want:  "2304.00067",
+		},
+		{
+			name:  "URL with trailing slash",
+			input: "https://arxiv.org/abs/2304.00067/",
+			want:  "2304.00067",
+		},
+		{
+			name:  "export subdomain URL",
+			input: "https://export.arxiv.org/abs/2304.00067",
+			want:  "2304.00067",
+		},
+
+		// Old style archive names
+		{
+			name:  "old style astro-ph",
+			input: "astro-ph/0001001",
+			want:  "astro-ph/0001001",
+		},
+		{
+			name:  "old style quant-ph",
+			input: "quant-ph/0001001",
+			want:  "quant-ph/0001001",
+		},
+		{
+			name:  "old style math",
+			input: "math/0001001",
+			want:  "math/0001001",
+		},
+		{
+			name:  "old style cs",
+			input: "cs/0001001",
+			want:  "cs/0001001",
+		},
+
+		// Boundary cases for new IDs
+		{
+			name:  "minimum 4 digit paper number",
+			input: "2304.0001",
+			want:  "2304.0001",
+		},
+		{
+			name:  "maximum 5 digit paper number",
+			input: "2304.99999",
+			want:  "2304.99999",
+		},
+
+		// Invalid edge cases
+		{
+			name:    "6 digit paper number",
+			input:   "2304.123456",
+			wantErr: true,
+		},
+		{
+			name:    "3 digit paper number",
+			input:   "2304.123",
+			wantErr: true,
+		},
+		{
+			name:    "version without number",
+			input:   "2304.00067v",
+			wantErr: true,
+		},
+		{
+			name:    "negative version",
+			input:   "2304.00067v-1",
+			wantErr: true,
+		},
+		{
+			name:    "only whitespace",
+			input:   "   ",
+			wantErr: true,
+		},
+		{
+			name:    "newlines and tabs",
+			input:   "\n\t2304.00067\n\t",
+			want:    "2304.00067",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeArxivID(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("NormalizeArxivID(%q) expected error, got %q", tt.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("NormalizeArxivID(%q) unexpected error: %v", tt.input, err)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("NormalizeArxivID(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestArticleToMeta_SpecialCharacters(t *testing.T) {
+	article := &goarxiv.Article{
+		ID:              "2304.00067",
+		Title:           "Testing: Special Characters & Symbols <in> \"Title\"",
+		Summary:         "Abstract with unicode: café, naïve, 日本語",
+		Authors:         []goarxiv.Author{{Name: "José García-López"}},
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{"cs.LG"},
+	}
+
+	meta := articleToMeta(article)
+
+	if meta.Title != "Testing: Special Characters & Symbols <in> \"Title\"" {
+		t.Errorf("Title with special chars not preserved: %q", meta.Title)
+	}
+	if meta.Abstract != "Abstract with unicode: café, naïve, 日本語" {
+		t.Errorf("Abstract with unicode not preserved: %q", meta.Abstract)
+	}
+	if meta.Authors[0].Name != "José García-López" {
+		t.Errorf("Author name with accents not preserved: %q", meta.Authors[0].Name)
+	}
+}
+
+func TestArticleToMeta_VeryLongFields(t *testing.T) {
+	// Create a very long title (1000 chars) - note: ends with space which gets trimmed
+	longTitle := ""
+	for i := 0; i < 100; i++ {
+		longTitle += "LongTitle "
+	}
+	// Expected length after TrimSpace
+	expectedTitleLen := len(longTitle) - 1 // trailing space removed
+
+	// Create a very long abstract (10000 chars) - note: ends with space which gets trimmed
+	longAbstract := ""
+	for i := 0; i < 1000; i++ {
+		longAbstract += "Abstract. "
+	}
+	expectedAbstractLen := len(longAbstract) - 1 // trailing space removed
+
+	article := &goarxiv.Article{
+		ID:              "2304.00067",
+		Title:           longTitle,
+		Summary:         longAbstract,
+		Authors:         []goarxiv.Author{},
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	// articleToMeta calls strings.TrimSpace, so trailing space is removed
+	if len(meta.Title) != expectedTitleLen {
+		t.Errorf("Long title: got %d chars, want %d", len(meta.Title), expectedTitleLen)
+	}
+	if len(meta.Abstract) != expectedAbstractLen {
+		t.Errorf("Long abstract: got %d chars, want %d", len(meta.Abstract), expectedAbstractLen)
+	}
+
+	// Also verify content is preserved (not truncated)
+	if len(meta.Title) < 900 {
+		t.Errorf("Title appears truncated: only %d chars", len(meta.Title))
+	}
+	if len(meta.Abstract) < 9000 {
+		t.Errorf("Abstract appears truncated: only %d chars", len(meta.Abstract))
+	}
+}
+
+func TestArticleToMeta_ManyAuthors(t *testing.T) {
+	// Create 100 authors
+	authors := make([]goarxiv.Author, 100)
+	for i := 0; i < 100; i++ {
+		authors[i] = goarxiv.Author{Name: "Author " + string(rune('A'+i%26))}
+	}
+
+	article := &goarxiv.Article{
+		ID:              "2304.00067",
+		Title:           "Paper with Many Authors",
+		Summary:         "Abstract",
+		Authors:         authors,
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	if len(meta.Authors) != 100 {
+		t.Errorf("Expected 100 authors, got %d", len(meta.Authors))
+	}
+}
+
+func TestArticleToMeta_ManyCategories(t *testing.T) {
+	categories := []string{
+		"cs.LG", "cs.AI", "cs.CL", "cs.CV", "cs.NE",
+		"stat.ML", "math.OC", "physics.comp-ph",
+	}
+
+	article := &goarxiv.Article{
+		ID:              "2304.00067",
+		Title:           "Multi-category Paper",
+		Summary:         "Abstract",
+		Authors:         []goarxiv.Author{},
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "cs.LG",
+		Categories:      categories,
+	}
+
+	meta := articleToMeta(article)
+
+	if len(meta.Categories) != len(categories) {
+		t.Errorf("Expected %d categories, got %d", len(categories), len(meta.Categories))
+	}
+}
+
+func TestArticleToMeta_ZeroTime(t *testing.T) {
+	article := &goarxiv.Article{
+		ID:              "2304.00067",
+		Title:           "Test",
+		Summary:         "Abstract",
+		Authors:         []goarxiv.Author{},
+		Published:       time.Time{}, // zero time
+		Updated:         time.Time{}, // zero time
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	// Should still produce valid RFC3339 strings
+	if meta.Published == "" {
+		t.Error("Published should not be empty even for zero time")
+	}
+	if meta.Updated == "" {
+		t.Error("Updated should not be empty even for zero time")
+	}
+}
+
+func TestProgressWriter(t *testing.T) {
+	var calls []struct {
+		downloaded int64
+		total      int64
+	}
+
+	pw := &progressWriter{
+		total: 1000,
+		cb: func(downloaded, total int64) {
+			calls = append(calls, struct {
+				downloaded int64
+				total      int64
+			}{downloaded, total})
+		},
+	}
+
+	// Write in chunks
+	pw.Write([]byte("12345"))     // 5 bytes
+	pw.Write([]byte("1234567890")) // 10 bytes
+	pw.Write([]byte("123"))        // 3 bytes
+
+	if len(calls) != 3 {
+		t.Errorf("Expected 3 progress callbacks, got %d", len(calls))
+	}
+
+	if calls[0].downloaded != 5 {
+		t.Errorf("First callback: downloaded = %d, want 5", calls[0].downloaded)
+	}
+	if calls[1].downloaded != 15 {
+		t.Errorf("Second callback: downloaded = %d, want 15", calls[1].downloaded)
+	}
+	if calls[2].downloaded != 18 {
+		t.Errorf("Third callback: downloaded = %d, want 18", calls[2].downloaded)
+	}
+
+	// All should report same total
+	for i, call := range calls {
+		if call.total != 1000 {
+			t.Errorf("Callback %d: total = %d, want 1000", i, call.total)
+		}
+	}
+}
+
+func TestProgressWriter_NilCallback(t *testing.T) {
+	pw := &progressWriter{
+		total: 1000,
+		cb:    nil,
+	}
+
+	// Should not panic
+	n, err := pw.Write([]byte("test"))
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if n != 4 {
+		t.Errorf("Write returned %d, want 4", n)
+	}
+}
+
+func TestProgressWriter_ZeroTotal(t *testing.T) {
+	var lastDownloaded int64
+
+	pw := &progressWriter{
+		total: 0, // unknown total
+		cb: func(downloaded, total int64) {
+			lastDownloaded = downloaded
+		},
+	}
+
+	pw.Write([]byte("test data"))
+
+	if lastDownloaded != 9 {
+		t.Errorf("downloaded = %d, want 9", lastDownloaded)
+	}
+}
+
+func TestAuthor_EmptyName(t *testing.T) {
+	article := &goarxiv.Article{
+		ID:      "2304.00067",
+		Title:   "Test",
+		Summary: "Abstract",
+		Authors: []goarxiv.Author{
+			{Name: ""},
+			{Name: "Valid Author"},
+			{Name: "   "}, // whitespace only
+		},
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	// Empty names should still be preserved (the consumer can filter)
+	if len(meta.Authors) != 3 {
+		t.Errorf("Expected 3 authors, got %d", len(meta.Authors))
+	}
+}
