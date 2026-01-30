@@ -4,6 +4,7 @@
 package arxiv
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -784,5 +785,257 @@ func TestAuthor_EmptyName(t *testing.T) {
 	// Empty names should still be preserved (the consumer can filter)
 	if len(meta.Authors) != 3 {
 		t.Errorf("Expected 3 authors, got %d", len(meta.Authors))
+	}
+}
+
+// Search options tests
+
+func TestSearchOptions_Defaults(t *testing.T) {
+	opts := &SearchOptions{}
+
+	if opts.MaxResults != 0 {
+		t.Errorf("Default MaxResults should be 0 (use default), got %d", opts.MaxResults)
+	}
+	if opts.SortBy != "" {
+		t.Errorf("Default SortBy should be empty, got %q", opts.SortBy)
+	}
+}
+
+func TestSearchOptions_SortValues(t *testing.T) {
+	validSorts := []string{"relevance", "submitted", "updated", "submittedDate", "lastUpdatedDate"}
+
+	for _, sort := range validSorts {
+		opts := &SearchOptions{SortBy: sort}
+		if opts.SortBy != sort {
+			t.Errorf("SortBy = %q, want %q", opts.SortBy, sort)
+		}
+	}
+}
+
+// ArxivMeta struct tests
+
+func TestArxivMeta_EmptyStruct(t *testing.T) {
+	meta := &ArxivMeta{}
+
+	if meta.ID != "" {
+		t.Error("Empty meta.ID should be empty string")
+	}
+	if meta.Version != 0 {
+		t.Error("Empty meta.Version should be 0")
+	}
+	if meta.Authors != nil && len(meta.Authors) != 0 {
+		t.Error("Empty meta.Authors should be nil or empty")
+	}
+}
+
+func TestArxivMeta_VersionFromID(t *testing.T) {
+	tests := []struct {
+		id      string
+		version int
+	}{
+		{"2304.00067", 1},    // No version = v1
+		{"2304.00067v1", 1},
+		{"2304.00067v2", 2},
+		{"2304.00067v10", 10},
+	}
+
+	for _, tt := range tests {
+		article := &goarxiv.Article{
+			ID:              tt.id,
+			Title:           "Test",
+			Summary:         "Abstract",
+			Authors:         []goarxiv.Author{},
+			Published:       time.Now(),
+			Updated:         time.Now(),
+			PrimaryCategory: "cs.LG",
+			Categories:      []string{},
+		}
+
+		meta := articleToMeta(article)
+
+		if meta.Version != tt.version {
+			t.Errorf("ID %q: Version = %d, want %d", tt.id, meta.Version, tt.version)
+		}
+	}
+}
+
+// Author struct tests
+
+func TestAuthor_WithAllFields(t *testing.T) {
+	author := Author{
+		Name:        "John Doe",
+		Affiliation: "MIT",
+	}
+
+	if author.Name != "John Doe" {
+		t.Errorf("Name = %q, want %q", author.Name, "John Doe")
+	}
+	if author.Affiliation != "MIT" {
+		t.Errorf("Affiliation = %q, want %q", author.Affiliation, "MIT")
+	}
+}
+
+func TestAuthor_OnlyName(t *testing.T) {
+	author := Author{
+		Name: "Jane Smith",
+	}
+
+	if author.Name != "Jane Smith" {
+		t.Errorf("Name = %q, want %q", author.Name, "Jane Smith")
+	}
+	if author.Affiliation != "" {
+		t.Errorf("Affiliation should be empty, got %q", author.Affiliation)
+	}
+}
+
+// URL generation tests
+
+func TestURLGeneration(t *testing.T) {
+	article := &goarxiv.Article{
+		ID:              "2304.00067v2",
+		Title:           "Test",
+		Summary:         "Abstract",
+		Authors:         []goarxiv.Author{},
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	// Check URL format
+	expectedAbsURL := "https://arxiv.org/abs/2304.00067v2"
+	if meta.URL != expectedAbsURL {
+		t.Errorf("URL = %q, want %q", meta.URL, expectedAbsURL)
+	}
+
+	// PDF URL should use base ID (without version)
+	expectedPDFURL := "https://arxiv.org/pdf/2304.00067.pdf"
+	if meta.PDFURL != expectedPDFURL {
+		t.Errorf("PDFURL = %q, want %q", meta.PDFURL, expectedPDFURL)
+	}
+}
+
+func TestURLGeneration_OldStyleID(t *testing.T) {
+	article := &goarxiv.Article{
+		ID:              "hep-th/9901001v1",
+		Title:           "Test",
+		Summary:         "Abstract",
+		Authors:         []goarxiv.Author{},
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "hep-th",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	// Old-style IDs should work too
+	if !strings.Contains(meta.URL, "hep-th/9901001") {
+		t.Errorf("URL should contain old-style ID, got %q", meta.URL)
+	}
+}
+
+// Date handling tests
+
+func TestDateFormatting(t *testing.T) {
+	// Test specific date
+	published := time.Date(2023, 4, 15, 10, 30, 0, 0, time.UTC)
+	updated := time.Date(2023, 6, 20, 14, 45, 0, 0, time.UTC)
+
+	article := &goarxiv.Article{
+		ID:              "2304.00067",
+		Title:           "Test",
+		Summary:         "Abstract",
+		Authors:         []goarxiv.Author{},
+		Published:       published,
+		Updated:         updated,
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	// Should be RFC3339 format
+	expectedPublished := "2023-04-15T10:30:00Z"
+	if meta.Published != expectedPublished {
+		t.Errorf("Published = %q, want %q", meta.Published, expectedPublished)
+	}
+
+	expectedUpdated := "2023-06-20T14:45:00Z"
+	if meta.Updated != expectedUpdated {
+		t.Errorf("Updated = %q, want %q", meta.Updated, expectedUpdated)
+	}
+}
+
+func TestDateFormatting_DifferentTimezones(t *testing.T) {
+	// Test with non-UTC timezone
+	loc, _ := time.LoadLocation("America/New_York")
+	published := time.Date(2023, 4, 15, 10, 30, 0, 0, loc)
+
+	article := &goarxiv.Article{
+		ID:              "2304.00067",
+		Title:           "Test",
+		Summary:         "Abstract",
+		Authors:         []goarxiv.Author{},
+		Published:       published,
+		Updated:         published,
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{},
+	}
+
+	meta := articleToMeta(article)
+
+	// Should preserve timezone info in RFC3339
+	if meta.Published == "" {
+		t.Error("Published should not be empty")
+	}
+}
+
+// Client creation tests
+
+func TestNewClient_Success(t *testing.T) {
+	client, err := NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("NewClient() returned nil client")
+	}
+	if client.client == nil {
+		t.Error("NewClient() internal client is nil")
+	}
+}
+
+// Benchmark tests
+
+func BenchmarkNormalizeArxivID_Simple(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		NormalizeArxivID("2304.00067")
+	}
+}
+
+func BenchmarkNormalizeArxivID_URL(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		NormalizeArxivID("https://arxiv.org/abs/2304.00067")
+	}
+}
+
+func BenchmarkArticleToMeta(b *testing.B) {
+	article := &goarxiv.Article{
+		ID:              "2304.00067v2",
+		Title:           "Test Paper Title",
+		Summary:         "This is the abstract.",
+		Authors:         []goarxiv.Author{{Name: "Alice"}, {Name: "Bob"}},
+		Published:       time.Now(),
+		Updated:         time.Now(),
+		PrimaryCategory: "cs.LG",
+		Categories:      []string{"cs.LG", "cs.AI"},
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		articleToMeta(article)
 	}
 }
