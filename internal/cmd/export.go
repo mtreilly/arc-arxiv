@@ -12,7 +12,7 @@ import (
 
 	"github.com/mtreilly/goarxiv"
 	"github.com/spf13/cobra"
-	"github.com/yourorg/arc-arxiv/internal/arxiv"
+	"github.com/mtreilly/arc-arxiv/internal/arxiv"
 	"github.com/yourorg/arc-sdk/config"
 )
 
