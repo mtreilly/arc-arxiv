@@ -705,9 +705,9 @@ func TestProgressWriter(t *testing.T) {
 	}
 
 	// Write in chunks
-	pw.Write([]byte("12345"))     // 5 bytes
-	pw.Write([]byte("1234567890")) // 10 bytes
-	pw.Write([]byte("123"))        // 3 bytes
+	_, _ = pw.Write([]byte("12345"))      // 5 bytes
+	_, _ = pw.Write([]byte("1234567890")) // 10 bytes
+	_, _ = pw.Write([]byte("123"))        // 3 bytes
 
 	if len(calls) != 3 {
 		t.Errorf("Expected 3 progress callbacks, got %d", len(calls))
@@ -757,7 +757,7 @@ func TestProgressWriter_ZeroTotal(t *testing.T) {
 		},
 	}
 
-	pw.Write([]byte("test data"))
+	_, _ = pw.Write([]byte("test data"))
 
 	if lastDownloaded != 9 {
 		t.Errorf("downloaded = %d, want 9", lastDownloaded)
@@ -823,7 +823,7 @@ func TestArxivMeta_EmptyStruct(t *testing.T) {
 	if meta.Version != 0 {
 		t.Error("Empty meta.Version should be 0")
 	}
-	if meta.Authors != nil && len(meta.Authors) != 0 {
+	if len(meta.Authors) != 0 {
 		t.Error("Empty meta.Authors should be nil or empty")
 	}
 }
@@ -1011,15 +1011,19 @@ func TestNewClient_Success(t *testing.T) {
 // Benchmark tests
 
 func BenchmarkNormalizeArxivID_Simple(b *testing.B) {
+	var id string
 	for i := 0; i < b.N; i++ {
-		NormalizeArxivID("2304.00067")
+		id, _ = NormalizeArxivID("2304.00067")
 	}
+	_ = id
 }
 
 func BenchmarkNormalizeArxivID_URL(b *testing.B) {
+	var id string
 	for i := 0; i < b.N; i++ {
-		NormalizeArxivID("https://arxiv.org/abs/2304.00067")
+		id, _ = NormalizeArxivID("https://arxiv.org/abs/2304.00067")
 	}
+	_ = id
 }
 
 func BenchmarkArticleToMeta(b *testing.B) {

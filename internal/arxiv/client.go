@@ -187,7 +187,7 @@ func (c *Client) DownloadPDF(ctx context.Context, id string, destPath string, pr
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
@@ -197,7 +197,7 @@ func (c *Client) DownloadPDF(ctx context.Context, id string, destPath string, pr
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if progress != nil && resp.ContentLength > 0 {
 		pw := &progressWriter{

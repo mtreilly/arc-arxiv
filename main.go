@@ -24,7 +24,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "arc-arxiv: failed to open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	root := cmd.NewRootCmd(cfg, database)
 	if err := root.Execute(); err != nil {
