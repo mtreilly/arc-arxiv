@@ -42,6 +42,8 @@ Papers are saved to the research root under papers/<arxiv-id>/ with:
 	root.AddCommand(newSearchCmd(cfg))
 	root.AddCommand(newExportCmd(cfg))
 	root.AddCommand(newUpdateCmd(cfg))
+	root.AddCommand(newDeleteCmd(cfg))
+	root.AddCommand(newStatsCmd(cfg))
 
 	return root
 }
